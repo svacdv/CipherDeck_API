@@ -1,4 +1,4 @@
-// CipherDeck API - Phase One Backend (Upgraded with Validation)
+// CipherDeck API - Phase One Backend (Full Rebuild: Validation + Matrix Storage + Matrix Retrieval)
 
 import fs from "fs";
 import path from "path";
@@ -32,6 +32,7 @@ const app = express();
 let PORT = process.env.PORT || 8080;
 const VAULT_LOG_PATH = "vault-trail.log";
 const API_KEY = process.env.CIPHER_API_KEY || "cipher-secret";
+const MATRICES_DIR = path.join(__dirname, 'matrices');
 
 app.use(cors());
 app.use(express.json());
@@ -52,6 +53,11 @@ function verifyKey(req, res, next) {
   next();
 }
 
+// Ensure matrices folder exists
+if (!fs.existsSync(MATRICES_DIR)) {
+  fs.mkdirSync(MATRICES_DIR);
+}
+
 // --- Core API Routes ---
 
 // Health check with vault summary
@@ -70,7 +76,7 @@ app.get("/api/ping", (req, res) => {
   });
 });
 
-// Matrix intake endpoint with validation
+// Matrix intake endpoint with validation and file storage
 app.post("/api/matrix/upload", verifyKey, (req, res) => {
   const matrix = req.body;
   if (!matrix || typeof matrix !== "object") {
@@ -81,9 +87,52 @@ app.post("/api/matrix/upload", verifyKey, (req, res) => {
   matrix.created_at = new Date().toISOString();
   matrix.symbolic_archetype = matrix.symbolic_archetype || "stabilizer";
   matrix.symbolic_drift_rating = matrix.symbolic_drift_rating || 1.0;
-  console.log(`[Upload] Matrix received: ${matrixId}`);
+
+  const matrixPath = path.join(MATRICES_DIR, `${matrixId}.json`);
+  fs.writeFileSync(matrixPath, JSON.stringify(matrix, null, 2));
+
+  console.log(`[Upload] Matrix received and stored: ${matrixId}`);
   writeVaultLog(`UPLOAD: ${matrixId} | Tags: ${matrix?.tags?.join(", ") || "none"}`);
-  res.status(200).json({ message: "Matrix uploaded successfully.", matrixId });
+  res.status(200).json({ message: "Matrix uploaded and stored successfully.", matrixId });
+});
+
+// --- New Matrix Listing and Fetching Routes (correct order) ---
+
+// List all matrices available (STATIC ROUTE FIRST)
+app.get("/api/matrix/list", verifyKey, (req, res) => {
+  try {
+    const files = fs.readdirSync(MATRICES_DIR);
+    const matrixIds = files
+      .filter(file => file.endsWith('.json'))
+      .map(file => path.basename(file, '.json'));
+
+    res.status(200).json({ matrices: matrixIds });
+  } catch (err) {
+    console.error('⚠️ Failed to list matrices:', err.message);
+    res.status(500).json({ error: "Failed to list matrices." });
+  }
+});
+
+// Fetch a specific matrix by ID (DYNAMIC ROUTE AFTER)
+app.get("/api/matrix/:matrixId", verifyKey, (req, res) => {
+  const { matrixId } = req.params;
+  if (!matrixId) {
+    return res.status(400).json({ error: "matrixId parameter is required." });
+  }
+
+  const matrixPath = path.join(MATRICES_DIR, `${matrixId}.json`);
+
+  if (!fs.existsSync(matrixPath)) {
+    return res.status(404).json({ error: "Matrix not found." });
+  }
+
+  try {
+    const matrixData = fs.readFileSync(matrixPath, 'utf8');
+    res.status(200).json(JSON.parse(matrixData));
+  } catch (err) {
+    console.error('⚠️ Failed to fetch matrix:', err.message);
+    res.status(500).json({ error: "Failed to fetch matrix." });
+  }
 });
 
 // Lens review endpoint with validation
