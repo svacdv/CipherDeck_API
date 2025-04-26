@@ -1,4 +1,4 @@
-// CipherDeck API - Phase One Backend (Render-Hardened Upgrade)
+// CipherDeck API - Phase One Backend (Full Real Code + Render-Hardened Upgrade)
 
 import fs from "fs";
 import path from "path";
@@ -67,7 +67,7 @@ app.get("/api/ping", (req, res) => {
     status: "CipherDeck backend live.",
     phase: "one",
     uptime: process.uptime(),
-    vault_loaded: Object.keys(vaultMemory).length > 0
+    vault_loaded: vaultMemory && typeof vaultMemory === 'object' && Object.keys(vaultMemory).length > 0
   });
 });
 
