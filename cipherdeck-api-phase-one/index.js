@@ -63,12 +63,23 @@ if (!fs.existsSync(MATRICES_DIR)) {
 
 app.get("/api/ping", (req, res) => {
   res.setHeader("X-Cipher-Glyph", "CipherDeck-Phase-One-Node");
-  res.json({
-    status: "CipherDeck backend live.",
-    phase: "one",
-    uptime: process.uptime(),
-    vault_loaded: vaultMemory && typeof vaultMemory === 'object' && Object.keys(vaultMemory).length > 0
-  });
+  try {
+    const vaultLoaded = vaultMemory && typeof vaultMemory === 'object' && Object.keys(vaultMemory || {}).length > 0;
+    res.status(200).json({
+      status: "CipherDeck backend live.",
+      phase: "one",
+      uptime: process.uptime(),
+      vault_loaded: vaultLoaded
+    });
+  } catch (error) {
+    console.error("⚠️ Ping failed, fallback mode:", error.message);
+    res.status(200).json({
+      status: "CipherDeck backend fallback live.",
+      phase: "one",
+      uptime: process.uptime(),
+      vault_loaded: false
+    });
+  }
 });
 
 app.post("/api/matrix/upload", verifyKey, (req, res) => {
