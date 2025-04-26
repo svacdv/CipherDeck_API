@@ -1,4 +1,4 @@
-// CipherDeck API - Full Production Version (Crash-Proof Ping + Full Real Routes)
+// CipherDeck API - Full Final Version (Crash-Proof Ping + Full Real Routes)
 
 import fs from "fs";
 import path from "path";
@@ -61,7 +61,7 @@ if (!fs.existsSync(MATRICES_DIR)) {
 // --- Core API Routes ---
 
 app.get("/api/ping", (req, res) => {
-  res.setHeader("X-Cipher-Glyph", "CipherDeck-Phase-One-Node");
+  // res.setHeader("X-Cipher-Glyph", "CipherDeck-Phase-One-Node"); // Commented to prevent invalid header error
   try {
     let vaultLoaded = false;
     if (vaultMemory && typeof vaultMemory === 'object') {
