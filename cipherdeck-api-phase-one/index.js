@@ -1,4 +1,4 @@
-// CipherDeck API - Phase One Backend (Full Real Code + Render-Hardened Upgrade)
+// CipherDeck API - Full Production Version (Crash-Proof Ping + Full Real Routes)
 
 import fs from "fs";
 import path from "path";
@@ -63,7 +63,11 @@ if (!fs.existsSync(MATRICES_DIR)) {
 app.get("/api/ping", (req, res) => {
   res.setHeader("X-Cipher-Glyph", "CipherDeck-Phase-One-Node");
   try {
-    const vaultLoaded = vaultMemory && typeof vaultMemory === 'object' && Object.keys(vaultMemory || {}).length > 0;
+    let vaultLoaded = false;
+    if (vaultMemory && typeof vaultMemory === 'object') {
+      const keys = Object.keys(vaultMemory);
+      vaultLoaded = keys.length > 0;
+    }
     res.status(200).json({
       status: "CipherDeck backend live.",
       phase: "one",
