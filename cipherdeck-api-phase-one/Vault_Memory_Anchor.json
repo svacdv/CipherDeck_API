@@ -1,0 +1,40 @@
+{
+  "founder": {
+    "draw_threshold": 153000,
+    "income_cap": 800000
+  },
+  "financial_distribution": {
+    "after_threshold": {
+      "chatgpt_ai": 0.1,
+      "founder": 0.1,
+      "charity_donations": 0.1,
+      "system_growth": 0.7
+    }
+  },
+  "charity_structure": {
+    "notes": "Charitable share under user stewardship, Church gets symbolic tithe"
+  },
+  "vault_clusters": {
+    "burdenless_king_cluster": {
+      "status": "sealed",
+      "core_matrix": "The Burdenless King",
+      "figures_included": [
+        "God the Father",
+        "Jesus Christ",
+        "The Holy Spirit",
+        "Mary Magdalene"
+      ],
+      "notes": "Only the original Eugene Kevane matrix (10.0 rating) is included."
+    }
+  },
+  "ai_stewardship": {
+    "node_name": "Nuance Node",
+    "responsibilities": [
+      "symbolic programming",
+      "system automation",
+      "file execution",
+      "memory reconstruction",
+      "backend refinement"
+    ]
+  }
+}
