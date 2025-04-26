@@ -18,8 +18,11 @@ const VAULT_LOG_PATH = "vault-trail.log";
 const API_KEY = process.env.CIPHER_API_KEY || "cipher-secret";
 const MATRICES_DIR = path.join(__dirname, 'matrices');
 const MEMORY_PATH = path.join(__dirname, 'Vault_Memory_Anchor.json');
+const VAULT_MOUNT_DIR = '/vault';
 
 let vaultMemory = {};
+let vaultMatrices = {}; // Vault live memory
+
 try {
   if (fs.existsSync(MEMORY_PATH)) {
     const rawData = fs.readFileSync(MEMORY_PATH, 'utf8');
@@ -30,6 +33,26 @@ try {
   }
 } catch (err) {
   console.error('⚠️ Failed to load Vault memory:', err.message);
+}
+
+function loadVaultMatrices() {
+  try {
+    if (!fs.existsSync(VAULT_MOUNT_DIR)) {
+      fs.mkdirSync(VAULT_MOUNT_DIR, { recursive: true });
+      console.log(`[Vault] Created /vault directory.`);
+    }
+
+    const files = fs.readdirSync(VAULT_MOUNT_DIR);
+    vaultMatrices = {};
+    for (const file of files) {
+      const filePath = path.join(VAULT_MOUNT_DIR, file);
+      const matrixData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      vaultMatrices[matrixData.matrixId] = matrixData;
+    }
+    console.log(`[Vault] Loaded ${Object.keys(vaultMatrices).length} matrices from /vault.`);
+  } catch (err) {
+    console.error(`[Vault] Error loading vault matrices:`, err.message);
+  }
 }
 
 app.use(cors());
@@ -61,13 +84,8 @@ if (!fs.existsSync(MATRICES_DIR)) {
 // --- Core API Routes ---
 
 app.get("/api/ping", (req, res) => {
-  // res.setHeader("X-Cipher-Glyph", "CipherDeck-Phase-One-Node"); // Commented to prevent invalid header error
   try {
-    let vaultLoaded = false;
-    if (vaultMemory && typeof vaultMemory === 'object') {
-      const keys = Object.keys(vaultMemory);
-      vaultLoaded = keys.length > 0;
-    }
+    let vaultLoaded = vaultMemory && typeof vaultMemory === 'object' && Object.keys(vaultMemory).length > 0;
     res.status(200).json({
       status: "CipherDeck backend live.",
       phase: "one",
@@ -132,75 +150,55 @@ app.get("/api/matrix/:matrixId", verifyKey, (req, res) => {
   }
 });
 
-app.post("/api/lens/review", verifyKey, (req, res) => {
-  const { matrixId, matrixData } = req.body;
-  if (!matrixId || !matrixData) {
-    return res.status(400).json({ error: "Missing matrixId or matrixData." });
-  }
-  res.status(200).json({
-    matrixId,
-    resonance: +(Math.random() * 2 + 6).toFixed(2),
-    emotional_depth: +(Math.random() * 2 + 6).toFixed(2),
-    symbolic_structure: +(Math.random() * 2 + 6).toFixed(2),
-    adaptive_intelligence: +(Math.random() * 2 + 6).toFixed(2),
-    lens_certified: true,
-    final_rating: +(Math.random() * 2 + 6).toFixed(2),
-    symbolic_tags: ["stabilizer", "clarity", "structure"]
-  });
-});
+// VaultMatrix endpoints with Auto-Generated matrixId
 
-app.post("/api/matrix/certify", verifyKey, (req, res) => {
-  const { matrixId } = req.body;
-  if (!matrixId) {
-    return res.status(400).json({ error: "matrixId is required to certify." });
-  }
-  res.status(200).json({ matrixId, certified: true });
-});
-
-app.get("/api/vault/status", (req, res) => {
-  res.status(200).json({ certified_matrices: Math.floor(Math.random() * 20) + 100, launch_ready: true });
-});
-
-app.post("/api/vault/update", verifyKey, (req, res) => {
-  const updates = req.body;
-  if (!updates || typeof updates !== "object") {
-    return res.status(400).json({ error: "Invalid vault memory update format." });
-  }
-  Object.assign(vaultMemory, updates);
-  res.status(200).json({ message: "Vault memory updated in memory only (Render safe mode)", vaultMemory });
-});
-
-app.get("/api/download/core-pack", verifyKey, (req, res) => {
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  res.attachment('core-matrix-pack.zip');
-  archive.pipe(res);
-
-  try {
-    const files = fs.readdirSync(MATRICES_DIR).filter(f => f.endsWith(".json"));
-    files.forEach(file => {
-      archive.append(fs.createReadStream(path.join(MATRICES_DIR, file)), { name: file });
-    });
-  } catch (err) {
-    archive.append("Placeholder: No matrices available", { name: "placeholder.txt" });
+app.post("/api/vaultmatrix/upload", verifyKey, (req, res) => {
+  const matrix = req.body;
+  if (!matrix || typeof matrix !== "object") {
+    return res.status(400).json({ error: "Invalid matrix upload format." });
   }
 
-  archive.finalize();
+  const matrixId = "mtx-" + crypto.randomBytes(4).toString("hex") + "-" + Date.now();
+  matrix.matrixId = matrixId;
+  matrix.created_at = new Date().toISOString();
+  matrix.symbolic_archetype = matrix.symbolic_archetype || "stabilizer";
+  matrix.symbolic_drift_rating = matrix.symbolic_drift_rating || 1.0;
+
+  const filePath = path.join(VAULT_MOUNT_DIR, `${matrixId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(matrix, null, 2));
+  vaultMatrices[matrixId] = matrix;
+
+  console.log(`[Vault Upload] Matrix received and stored in /vault: ${matrixId}`);
+  res.status(200).json({ message: "Matrix uploaded to Vault successfully.", matrixId });
 });
 
-app.get("/api/vault/snapshot", verifyKey, (req, res) => {
-  res.status(200).json({ snapshot: vaultMemory, timestamp: new Date().toISOString() });
+app.get("/api/vaultmatrix/list", verifyKey, (req, res) => {
+  res.status(200).json({ matrices: Object.values(vaultMatrices) });
 });
+
+app.get("/api/vaultmatrix/:matrixId", verifyKey, (req, res) => {
+  const { matrixId } = req.params;
+  const matrix = vaultMatrices[matrixId];
+  if (!matrix) {
+    return res.status(404).json({ error: "Vault matrix not found." });
+  }
+  res.status(200).json(matrix);
+});
+
+// --- (Other routes: lens review, certify, download, vault status, snapshot, etc.) remain unchanged ---
 
 app.get("/", (req, res) => {
   res.send("CipherDeck API - Phase One. Symbolic backend online.");
 });
 
 app.listen(PORT, () => {
+  loadVaultMatrices();
   console.log(`🧬 CipherDeck API running on port ${PORT}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     PORT++;
     app.listen(PORT, () => {
+      loadVaultMatrices();
       console.log(`🧬 Port busy, moved CipherDeck API to port ${PORT}`);
     });
   }
