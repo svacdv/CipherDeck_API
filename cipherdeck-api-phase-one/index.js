@@ -54,7 +54,6 @@ function verifyKey(req, res, next) {
   next();
 }
 
-// Ensure matrices folder exists
 if (!fs.existsSync(MATRICES_DIR)) {
   fs.mkdirSync(MATRICES_DIR, { recursive: true });
 }
