@@ -1,4 +1,4 @@
-// CipherDeck API - Full Corrected and Restored Version
+// CipherDeck API v2.0 - Improved Version
 
 import fs from "fs";
 import path from "path";
@@ -13,168 +13,112 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-let PORT = process.env.PORT || 8080;
-const VAULT_LOG_PATH = "vault-trail.log";
-const API_KEY = process.env.CIPHER_API_KEY || "cipher-secret";
-const MATRICES_DIR = path.join(__dirname, 'matrices');
-const MEMORY_PATH = path.join(__dirname, 'Vault_Memory_Anchor.json');
-const VAULT_MOUNT_DIR = '/vault';
+const PORT = process.env.PORT || 8080;
+
+const CONFIG = {
+  VAULT_LOG_PATH: "vault-trail.log",
+  API_KEY: process.env.CIPHER_API_KEY || "cipher-secret",
+  MATRICES_DIR: path.join(__dirname, "matrices"),
+  MEMORY_PATH: path.join(__dirname, "Vault_Memory_Anchor.json"),
+  VAULT_MOUNT_DIR: "/vault"
+};
 
 let vaultMemory = {};
-let vaultMatrices = {}; // Vault live memory
+let vaultMatrices = {};
 
-try {
-  if (fs.existsSync(MEMORY_PATH)) {
-    const rawData = fs.readFileSync(MEMORY_PATH, 'utf8');
-    vaultMemory = JSON.parse(rawData);
-    console.log('\n🔐 Vault memory loaded.');
-  } else {
-    console.log('\n⚠️ No Vault memory found. Starting with empty memory.');
-  }
-} catch (err) {
-  console.error('⚠️ Failed to load Vault memory:', err.message);
-}
-
-function loadVaultMatrices() {
+const initializeVaultMemory = () => {
   try {
-    if (!fs.existsSync(VAULT_MOUNT_DIR)) {
-      fs.mkdirSync(VAULT_MOUNT_DIR, { recursive: true });
-      console.log(`[Vault] Created /vault directory.`);
+    if (fs.existsSync(CONFIG.MEMORY_PATH)) {
+      const rawData = fs.readFileSync(CONFIG.MEMORY_PATH, "utf8");
+      vaultMemory = JSON.parse(rawData);
+      console.log("🔐 Vault memory loaded.");
+    } else {
+      console.log("⚠️ No Vault memory found. Starting with empty memory.");
     }
-    const files = fs.readdirSync(VAULT_MOUNT_DIR);
-    vaultMatrices = {};
-    for (const file of files) {
-      const filePath = path.join(VAULT_MOUNT_DIR, file);
-      vaultMatrices[file.replace('.json', '')] = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    }
-    console.log(`[Vault] Loaded ${Object.keys(vaultMatrices).length} matrices from /vault.`);
   } catch (err) {
-    console.error(`[Vault] Error loading vault matrices:`, err.message);
+    console.error("⚠️ Failed to load Vault memory:", err.message);
   }
-}
+};
 
-loadVaultMatrices();
+const loadVaultMatrices = () => {
+  try {
+    if (!fs.existsSync(CONFIG.VAULT_MOUNT_DIR)) {
+      fs.mkdirSync(CONFIG.VAULT_MOUNT_DIR, { recursive: true });
+      console.log(`[Vault] Created ${CONFIG.VAULT_MOUNT_DIR} directory.`);
+    }
+    const files = fs.readdirSync(CONFIG.VAULT_MOUNT_DIR);
+    vaultMatrices = files.reduce((acc, file) => {
+      const filePath = path.join(CONFIG.VAULT_MOUNT_DIR, file);
+      acc[file.replace(".json", "")] = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      return acc;
+    }, {});
+    console.log(`[Vault] Loaded ${files.length} matrices.`);
+  } catch (err) {
+    console.error("[Vault] Error:", err.message);
+  }
+};
+
+const generateMatrixId = () => "mtx-" + crypto.randomBytes(4).toString("hex") + "-" + Date.now();
+
+const verifyKey = (req, res, next) => {
+  const key = req.headers["x-api-key"];
+  if (key !== CONFIG.API_KEY) return res.status(403).json({ error: "Unauthorized" });
+  next();
+};
+
+const writeVaultLog = (entry) => {
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(path.join(__dirname, CONFIG.VAULT_LOG_PATH), `[${timestamp}] ${entry}\n`);
+};
 
 app.use(cors());
 app.use(express.json());
 
-function generateMatrixId() {
-  return "mtx-" + crypto.randomBytes(4).toString("hex") + "-" + Date.now();
-}
+app.get("/api/status", (req, res) => res.json({ status: "operational", matrices_loaded: Object.keys(vaultMatrices).length, uptime: process.uptime() }));
 
-function writeVaultLog(entry) {
-  const timestamp = new Date().toISOString();
-  try {
-    fs.appendFileSync(path.join(__dirname, VAULT_LOG_PATH), `[${timestamp}] ${entry}\n`);
-  } catch (err) {
-    console.error('⚠️ Vault log write failed:', err.message);
-  }
-}
-
-function verifyKey(req, res, next) {
-  const key = req.headers["x-api-key"];
-  if (key !== API_KEY) return res.status(403).json({ error: "Unauthorized" });
-  next();
-}
-
-if (!fs.existsSync(MATRICES_DIR)) {
-  fs.mkdirSync(MATRICES_DIR, { recursive: true });
-}
-
-// --- Core API Routes ---
-
-app.get("/api/ping", (req, res) => {
-  res.status(200).json({
-    status: "CipherDeck backend live.",
-    phase: "one",
-    uptime: process.uptime(),
-    vault_loaded: !!vaultMemory
+app.route("/api/matrix/:matrixId?")
+  .get(verifyKey, (req, res) => {
+    const { matrixId } = req.params;
+    if (!matrixId) {
+      const files = fs.readdirSync(CONFIG.MATRICES_DIR).map(f => f.replace(".json", ""));
+      return res.json({ matrices: files });
+    }
+    const matrixPath = path.join(CONFIG.MATRICES_DIR, `${matrixId}.json`);
+    if (!fs.existsSync(matrixPath)) return res.status(404).json({ error: "Matrix not found." });
+    res.json(JSON.parse(fs.readFileSync(matrixPath)));
+  })
+  .post(verifyKey, (req, res) => {
+    const matrixId = generateMatrixId();
+    const matrix = { ...req.body, matrixId, created_at: new Date().toISOString() };
+    fs.writeFileSync(path.join(CONFIG.MATRICES_DIR, `${matrixId}.json`), JSON.stringify(matrix, null, 2));
+    fs.writeFileSync(path.join(CONFIG.VAULT_MOUNT_DIR, `${matrixId}.json`), JSON.stringify(matrix, null, 2));
+    vaultMatrices[matrixId] = matrix;
+    writeVaultLog(`UPLOAD: ${matrixId}`);
+    res.json({ message: "Matrix stored.", matrixId });
+  })
+  .delete(verifyKey, (req, res) => {
+    const { matrixId } = req.params;
+    fs.unlinkSync(path.join(CONFIG.MATRICES_DIR, `${matrixId}.json`));
+    delete vaultMatrices[matrixId];
+    writeVaultLog(`DELETE: ${matrixId}`);
+    res.json({ message: "Matrix deleted." });
   });
-});
 
-app.post("/api/matrix/upload", verifyKey, (req, res) => {
-  const matrix = req.body;
-  if (!matrix || typeof matrix !== "object") {
-    return res.status(400).json({ error: "Invalid matrix upload format." });
-  }
-  const matrixId = generateMatrixId();
-  matrix.matrixId = matrixId;
-  matrix.created_at = new Date().toISOString();
-  matrix.symbolic_archetype = matrix.symbolic_archetype || "stabilizer";
-  matrix.symbolic_drift_rating = matrix.symbolic_drift_rating || 1.0;
-
-  const matrixPath = path.join(MATRICES_DIR, `${matrixId}.json`);
-  fs.writeFileSync(matrixPath, JSON.stringify(matrix, null, 2));
-
-  const vaultPath = path.join(VAULT_MOUNT_DIR, `${matrixId}.json`);
-  fs.writeFileSync(vaultPath, JSON.stringify(matrix, null, 2));
-  vaultMatrices[matrixId] = matrix;
-
-  console.log(`[Upload] Matrix stored: ${matrixId}`);
-  writeVaultLog(`UPLOAD: ${matrixId}`);
-  res.status(200).json({ message: "Matrix uploaded and stored successfully.", matrixId });
-});
-
-app.post("/api/vaultmatrix/upload", verifyKey, (req, res) => {
-  loadVaultMatrices();
-  res.status(200).json({ message: "Vault matrices reloaded." });
-});
-
-app.post("/api/vault/update", verifyKey, (req, res) => {
-  loadVaultMatrices();
-  res.status(200).json({ status: "Vault is operational.", matrices_loaded: Object.keys(vaultMatrices).length, uptime: process.uptime() });
-});
-
-app.post("/api/matrix/review", verifyKey, (req, res) => {
-  res.status(200).json({ message: "Matrix review route (placeholder)." });
-});
-
-app.post("/api/matrix/certify", verifyKey, (req, res) => {
-  res.status(200).json({ message: "Matrix certify route (placeholder)." });
-});
-
-app.get("/api/matrix/snapshot", verifyKey, (req, res) => {
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  res.attachment("matrices_snapshot.zip");
+// Archiving routes
+app.get("/api/archive/:type", verifyKey, (req, res) => {
+  const { type } = req.params;
+  const archive = archiver("zip");
+  res.attachment(`${type}_archive.zip`);
   archive.pipe(res);
-  archive.directory(MATRICES_DIR, false);
+
+  if (type === "snapshot") Object.entries(vaultMatrices).forEach(([id, data]) => archive.append(JSON.stringify(data), { name: `${id}.json` }));
+  else if (type === "core-pack") Object.entries(vaultMatrices).slice(0, 5).forEach(([id, data]) => archive.append(JSON.stringify(data), { name: `${id}.json` }));
+
   archive.finalize();
 });
 
-app.get("/api/matrix/core-pack", verifyKey, (req, res) => {
-  try {
-    const coreMatrices = Object.keys(vaultMatrices).slice(0, 10);
-    const coreData = coreMatrices.map(id => vaultMatrices[id]);
-    res.status(200).json({ core_pack: coreData });
-  } catch (err) {
-    console.error("⚠️ Core pack generation error:", err.message);
-    res.status(500).json({ error: "Failed to generate core pack." });
-  }
-});
-
-app.get("/api/matrix/list", verifyKey, (req, res) => {
-  try {
-    const files = fs.readdirSync(MATRICES_DIR);
-    const matrixIds = files.filter(f => f.endsWith(".json")).map(f => f.replace(".json", ""));
-    res.status(200).json({ matrices: matrixIds });
-  } catch (err) {
-    console.error('⚠️ Failed to list matrices:', err.message);
-    res.status(500).json({ error: "Failed to list matrices." });
-  }
-});
-
-app.get("/api/vaultmatrix/list", verifyKey, (req, res) => {
-  try {
-    const matrixIds = Object.keys(vaultMatrices);
-    res.status(200).json({ matrices: matrixIds });
-  } catch (err) {
-    console.error('⚠️ Failed to list vault matrices:', err.message);
-    res.status(500).json({ error: "Failed to list vault matrices." });
-  }
-});
-
-// --- Start Server ---
-
 app.listen(PORT, () => {
-  console.log(`\n🚀 CipherDeck API running on port ${PORT}`);
+  initializeVaultMemory();
+  loadVaultMatrices();
+  console.log(`🧬 CipherDeck API running on port ${PORT}`);
 });
