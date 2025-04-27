@@ -36,22 +36,18 @@ try {
 }
 
 function loadVaultMatrices() {
-  try {
-    if (!fs.existsSync(VAULT_MOUNT_DIR)) {
-      fs.mkdirSync(VAULT_MOUNT_DIR, { recursive: true });
-      console.log(`[Vault] Created /vault directory.`);
-    }
-
-    const files = fs.readdirSync(VAULT_MOUNT_DIR);
-    vaultMatrices = {};
-    for (const file of files) {
-      const filePath = path.join(VAULT_MOUNT_DIR, file);
-      vaultMatrices[file.replace('.json', '')] = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    }
-    console.log(`[Vault] Loaded ${Object.keys(vaultMatrices).length} matrices from /vault.`);
-  } catch (err) {
-    console.error(`[Vault] Error loading vault matrices:`, err.message);
+  if (!fs.existsSync(VAULT_MOUNT_DIR)) {
+    fs.mkdirSync(VAULT_MOUNT_DIR, { recursive: true });
+    console.log(`[Vault] Created /vault directory.`);
   }
+
+  const files = fs.readdirSync(VAULT_MOUNT_DIR);
+  vaultMatrices = {};
+  for (const file of files) {
+    const filePath = path.join(VAULT_MOUNT_DIR, file);
+    vaultMatrices[file.replace('.json', '')] = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  }
+  console.log(`[Vault] Loaded ${Object.keys(vaultMatrices).length} matrices from /vault.`);
 }
 
 app.use(cors());
@@ -215,7 +211,6 @@ app.delete("/api/vaultmatrix/delete/:matrixId", verifyKey, (req, res) => {
   }
 });
 
-// VaultMatrix List
 app.get("/api/vaultmatrix/list", verifyKey, (req, res) => {
   try {
     const matrixIds = Object.keys(vaultMatrices);
@@ -305,14 +300,21 @@ app.get("/", (req, res) => {
   res.send("CipherDeck API - Phase One. Symbolic backend online.");
 });
 
-app.listen(PORT, () => {
+// --- Safe Boot Step ---
+try {
   loadVaultMatrices();
+  console.log("✅ Vault matrices loaded successfully.");
+} catch (err) {
+  console.error("❌ Critical Error: Failed to load Vault matrices.", err.message);
+  process.exit(1);
+}
+
+app.listen(PORT, () => {
   console.log(`🧬 CipherDeck API running on port ${PORT}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     PORT++;
     app.listen(PORT, () => {
-      loadVaultMatrices();
       console.log(`🧬 Port busy, moved CipherDeck API to port ${PORT}`);
     });
   }
