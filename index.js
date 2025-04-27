@@ -5,6 +5,7 @@ import path from "path";
 import express from "express";
 import cors from "cors";
 import crypto from "crypto";
+import { loadVaultMemory, getMatrix, listMatrices } from "./memory.js";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import archiver from "archiver";
@@ -107,6 +108,7 @@ app.post("/api/matrix/upload", verifyKey, (req, res) => {
   if (!matrix || typeof matrix !== "object") {
     return res.status(400).json({ error: "Invalid matrix upload format." });
   }
+  
   const matrixId = generateMatrixId();
   matrix.matrixId = matrixId;
   matrix.created_at = new Date().toISOString();
@@ -116,14 +118,10 @@ app.post("/api/matrix/upload", verifyKey, (req, res) => {
   const matrixPath = path.join(MATRICES_DIR, `${matrixId}.json`);
   fs.writeFileSync(matrixPath, JSON.stringify(matrix, null, 2));
 
-  // Also auto-create in Vault
-  const vaultPath = path.join(VAULT_MOUNT_DIR, `${matrixId}.json`);
-  fs.writeFileSync(vaultPath, JSON.stringify(matrix, null, 2));
-  vaultMatrices[matrixId] = matrix;
+  console.log(`[Upload] Matrix saved locally: ${matrixId}`);
+  writeVaultLog(`UPLOAD MATRIX LOCAL: ${matrixId}`);
 
-  console.log(`[Upload] Matrix stored: ${matrixId}`);
-  writeVaultLog(`UPLOAD: ${matrixId}`);
-  res.status(200).json({ message: "Matrix uploaded and stored successfully.", matrixId });
+  res.status(200).json({ message: "Matrix uploaded and stored locally.", matrixId });
 });
 
 app.get("/api/matrix/list", verifyKey, (req, res) => {
@@ -307,12 +305,14 @@ app.get("/", (req, res) => {
 
 app.listen(PORT, () => {
   loadVaultMatrices();
+  loadVaultMemory(); // 🧠 Load brain after filesystem is ready
   console.log(`🧬 CipherDeck API running on port ${PORT}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     PORT++;
     app.listen(PORT, () => {
       loadVaultMatrices();
+      loadVaultMemory(); // 🧠 Also reload brain after port fallback
       console.log(`🧬 Port busy, moved CipherDeck API to port ${PORT}`);
     });
   }
