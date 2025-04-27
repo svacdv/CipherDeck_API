@@ -215,6 +215,17 @@ app.delete("/api/vaultmatrix/delete/:matrixId", verifyKey, (req, res) => {
   }
 });
 
+// VaultMatrix List
+app.get("/api/vaultmatrix/list", verifyKey, (req, res) => {
+  try {
+    const matrixIds = Object.keys(vaultMatrices);
+    res.status(200).json({ matrices: matrixIds });
+  } catch (err) {
+    console.error('⚠️ Failed to list vault matrices:', err.message);
+    res.status(500).json({ error: "Failed to list vault matrices." });
+  }
+});
+
 // Status Check
 app.get("/api/status", (req, res) => {
   try {
