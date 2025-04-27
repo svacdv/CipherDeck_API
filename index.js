@@ -116,7 +116,12 @@ app.post("/api/matrix/upload", verifyKey, (req, res) => {
   const matrixPath = path.join(MATRICES_DIR, `${matrixId}.json`);
   fs.writeFileSync(matrixPath, JSON.stringify(matrix, null, 2));
 
-  console.log(`[Upload] Matrix received and stored: ${matrixId}`);
+  // Also auto-create in Vault
+  const vaultPath = path.join(VAULT_MOUNT_DIR, `${matrixId}.json`);
+  fs.writeFileSync(vaultPath, JSON.stringify(matrix, null, 2));
+  vaultMatrices[matrixId] = matrix;
+
+  console.log(`[Upload] Matrix stored: ${matrixId}`);
   writeVaultLog(`UPLOAD: ${matrixId}`);
   res.status(200).json({ message: "Matrix uploaded and stored successfully.", matrixId });
 });
@@ -149,15 +154,26 @@ app.get("/api/matrix/:matrixId", verifyKey, (req, res) => {
   }
 });
 
-// VaultMatrix endpoints with Auto-Generated matrixId
+app.delete("/api/matrix/delete/:matrixId", verifyKey, (req, res) => {
+  const { matrixId } = req.params;
+  try {
+    const matrixPath = path.join(MATRICES_DIR, `${matrixId}.json`);
+    if (fs.existsSync(matrixPath)) fs.unlinkSync(matrixPath);
+    writeVaultLog(`DELETE MATRIX: ${matrixId}`);
+    res.status(200).json({ message: "Matrix deleted." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete matrix." });
+  }
+});
+
+// VaultMatrix endpoints
 
 app.post("/api/vaultmatrix/upload", verifyKey, (req, res) => {
   const matrix = req.body;
   if (!matrix || typeof matrix !== "object") {
     return res.status(400).json({ error: "Invalid matrix upload format." });
   }
-
-  const matrixId = "mtx-" + crypto.randomBytes(4).toString("hex") + "-" + Date.now();
+  const matrixId = generateMatrixId();
   matrix.matrixId = matrixId;
   matrix.created_at = new Date().toISOString();
   matrix.symbolic_archetype = matrix.symbolic_archetype || "stabilizer";
@@ -167,52 +183,61 @@ app.post("/api/vaultmatrix/upload", verifyKey, (req, res) => {
   fs.writeFileSync(filePath, JSON.stringify(matrix, null, 2));
   vaultMatrices[matrixId] = matrix;
 
-  console.log(`[Vault Upload] Matrix received and stored in /vault: ${matrixId}`);
+  console.log(`[Vault Upload] Stored to /vault: ${matrixId}`);
   res.status(200).json({ message: "Matrix uploaded to Vault successfully.", matrixId });
 });
 
-app.get("/api/vaultmatrix/list", verifyKey, (req, res) => {
-  res.status(200).json({ matrices: Object.values(vaultMatrices) });
-});
-
-app.get("/api/vaultmatrix/:matrixId", verifyKey, (req, res) => {
+app.post("/api/vaultmatrix/update/:matrixId", verifyKey, (req, res) => {
   const { matrixId } = req.params;
-  const matrix = vaultMatrices[matrixId];
-  if (!matrix) {
+  const updates = req.body;
+
+  if (!vaultMatrices[matrixId]) {
     return res.status(404).json({ error: "Vault matrix not found." });
   }
-  res.status(200).json(matrix);
+
+  vaultMatrices[matrixId] = { ...vaultMatrices[matrixId], ...updates };
+  const filePath = path.join(VAULT_MOUNT_DIR, `${matrixId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(vaultMatrices[matrixId], null, 2));
+
+  res.status(200).json({ message: "Vault matrix updated.", matrixId });
 });
 
-// --- Additional CipherDeck API Routes (missing ones you asked for) ---
+app.delete("/api/vaultmatrix/delete/:matrixId", verifyKey, (req, res) => {
+  const { matrixId } = req.params;
+  try {
+    const filePath = path.join(VAULT_MOUNT_DIR, `${matrixId}.json`);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    delete vaultMatrices[matrixId];
+    writeVaultLog(`DELETE VAULT MATRIX: ${matrixId}`);
+    res.status(200).json({ message: "Vault matrix deleted." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete vault matrix." });
+  }
+});
 
-// Vault Status Check
+// Status Check
 app.get("/api/status", (req, res) => {
   try {
-    const matrixCount = Object.keys(vaultMatrices).length;
     res.status(200).json({
       status: "Vault is operational.",
-      matrices_loaded: matrixCount,
+      matrices_loaded: Object.keys(vaultMatrices).length,
       uptime: process.uptime()
     });
   } catch (err) {
-    console.error('⚠️ Vault status check failed:', err.message);
     res.status(500).json({ error: "Vault status check failed." });
   }
 });
 
-// Vault Update Reload
 app.post("/api/vault/update", verifyKey, (req, res) => {
   try {
     loadVaultMatrices();
-    res.status(200).json({ message: "Vault matrices reloaded successfully." });
+    res.status(200).json({ message: "Vault matrices reloaded." });
   } catch (err) {
-    console.error('⚠️ Vault reload failed:', err.message);
     res.status(500).json({ error: "Vault reload failed." });
   }
 });
 
-// Snapshot (Download all Vault Matrices as zip)
+// Snapshot
 app.get("/api/snapshot", verifyKey, (req, res) => {
   try {
     const archive = archiver('zip');
@@ -224,12 +249,11 @@ app.get("/api/snapshot", verifyKey, (req, res) => {
     }
     archive.finalize();
   } catch (err) {
-    console.error('⚠️ Vault snapshot failed:', err.message);
     res.status(500).json({ error: "Snapshot creation failed." });
   }
 });
 
-// Core Pack Download (first 5 matrices as zip)
+// Core Pack
 app.get("/api/core-pack", verifyKey, (req, res) => {
   try {
     const archive = archiver('zip');
@@ -242,40 +266,28 @@ app.get("/api/core-pack", verifyKey, (req, res) => {
     }
     archive.finalize();
   } catch (err) {
-    console.error('⚠️ Core Pack creation failed:', err.message);
     res.status(500).json({ error: "Core Pack creation failed." });
   }
 });
 
-// Review a Matrix (Simple lens checkup)
+// Review
 app.post("/api/review", verifyKey, (req, res) => {
   const { matrix } = req.body;
   if (!matrix || typeof matrix !== "object") {
-    return res.status(400).json({ error: "Invalid matrix format for review." });
+    return res.status(400).json({ error: "Invalid matrix format." });
   }
-  const score = Math.random() * (10 - 7) + 7; // Random 7.0 - 10.0
-  res.status(200).json({
-    review: {
-      symbolic_depth_rating: parseFloat(score.toFixed(2)),
-      notes: "Symbolic scan completed."
-    }
-  });
+  const score = Math.random() * (10 - 7) + 7;
+  res.status(200).json({ review: { symbolic_depth_rating: parseFloat(score.toFixed(2)), notes: "Symbolic scan completed." }});
 });
 
-// Certify a Matrix (Simple drift certifier)
+// Certify
 app.post("/api/certify", verifyKey, (req, res) => {
   const { matrix } = req.body;
   if (!matrix || typeof matrix !== "object") {
-    return res.status(400).json({ error: "Invalid matrix format for certification." });
+    return res.status(400).json({ error: "Invalid matrix format." });
   }
-  const driftRating = Math.random() * (1.5 - 0.8) + 0.8; // Random 0.8 - 1.5 drift
-  res.status(200).json({
-    certification: {
-      symbolic_drift_rating: parseFloat(driftRating.toFixed(3)),
-      certified_at: new Date().toISOString(),
-      notes: "Matrix certified against drift."
-    }
-  });
+  const driftRating = Math.random() * (1.5 - 0.8) + 0.8;
+  res.status(200).json({ certification: { symbolic_drift_rating: parseFloat(driftRating.toFixed(3)), certified_at: new Date().toISOString(), notes: "Matrix certified." }});
 });
 
 app.get("/", (req, res) => {
